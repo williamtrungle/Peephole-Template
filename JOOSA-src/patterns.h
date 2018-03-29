@@ -122,15 +122,10 @@ int simplify_goto_goto(CODE **c)
  * ----------->
  * if_cmpge L3
  * ...
- * L1:  (reference count reduced by 1)
- * ...
- * L2:  (reference count reduced by 1)
- * ...
  * L3:
  */
-int simplify_for_cond(CODE **c)
-{ 
-    int l1_t, l1_f, l2_t, l2_f, l3, k;
+int simplify_branch_cond(CODE **c)
+{ int l1_t, l1_f, l2_t, l2_f, l3, k;
     if (is_if(c, &l1_t))
     {
         if (is_ldc_int(nextby(*c, 1), &k) &&
@@ -168,11 +163,38 @@ int simplify_for_cond(CODE **c)
                 {
                     return replace_modified(c,7,makeCODEifeq(l3, NULL));
                 }
+                else if (is_if_icmpeq(*c, &l1_t))
+                {
+                    return replace_modified(c,7,makeCODEif_icmpne(l3, NULL));
+                }
+                else if (is_if_icmpne(*c, &l1_t))
+                {
+                    return replace_modified(c,7,makeCODEif_icmpeq(l3, NULL));
+                }
             }
         }
     }
     return 0;
 }
+
+/*
+int simplify_if_cond(CODE **c)
+{ int l1_t, l1_f, l2_t, l2_f, l3, k;
+    if (is_if(c, &l1_t))
+    {
+        if (is_ldc_int(nextby(*c, 1), &k) &&
+                is_goto(nextby(*c, 2), &l2_t) &&
+                is_label(nextby(*c, 3), l1_f) &&
+                is_ldc_int(nextby(*c, 4), &k) &&
+                is_label(nextby(*c, 5), &l2_f) &&
+                is_ifeq(nextby(*c, 6), &l3) &&
+                (l1_t == l1_f) && (l2_t == l2_f) &&
+                l3 < l2_t && l2_t > l1_t)
+        {
+        }
+    }
+}
+*/
 
 void init_patterns(void) {
 	ADD_PATTERN(simplify_multiplication_right);
@@ -181,5 +203,5 @@ void init_patterns(void) {
 	ADD_PATTERN(simplify_goto_goto);
 
 	ADD_PATTERN(simplify_istore);
-	ADD_PATTERN(simplify_for_cond);
+	ADD_PATTERN(simplify_branch_cond);
 }
