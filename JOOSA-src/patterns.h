@@ -18,6 +18,7 @@
  *                               dup
  *                               iadd
  */
+#include <stdio.h>
 
 int simplify_multiplication_right(CODE **c)
 { int x,k;
@@ -54,7 +55,7 @@ int simplify_astore(CODE **c)
  * istore x
  * pop
  * -------->
- * astore x
+ * istore x
  */
 int simplify_istore(CODE **c)
 { int x;
@@ -109,6 +110,70 @@ int simplify_goto_goto(CODE **c)
   return 0;
 }
 
+/* if_cmplt L1
+ * iconst_0
+ * goto L2
+ * L1:
+ * iconst_1
+ * L2:
+ * ifeq L3
+ * ...
+ * L3
+ * ----------->
+ * if_cmpge L3
+ * ...
+ * L1:  (reference count reduced by 1)
+ * ...
+ * L2:  (reference count reduced by 1)
+ * ...
+ * L3:
+ */
+int simplify_for_cond(CODE **c)
+{ 
+    int l1_t, l1_f, l2_t, l2_f, l3, k;
+    if (is_if(c, &l1_t))
+    {
+        if (is_ldc_int(nextby(*c, 1), &k) &&
+                is_goto(nextby(*c, 2), &l2_t) && 
+                is_label(nextby(*c, 3), &l1_f) && 
+                is_ldc_int(nextby(*c, 1), &k) &&
+                is_label(nextby(*c, 5), &l2_f) && 
+                is_ifeq(nextby(*c, 6), &l3))
+        {
+            if ((l2_t == l2_f) &&
+                (l1_t == l1_f) &&
+                l3 < l2_t && l2_t > l1_t)
+            {
+                if (is_if_icmplt(*c, &l1_t))
+                {
+                    return replace_modified(c,7,makeCODEif_icmpge(l3, NULL));
+                }
+                else if (is_if_icmple(*c, &l1_t))
+                {
+                    return replace_modified(c,7,makeCODEif_icmpgt(l3, NULL));
+                }
+                else if (is_if_icmpgt(*c, &l1_t))
+                {
+                    return replace_modified(c,7,makeCODEif_icmple(l3, NULL));
+                }
+                else if (is_if_icmpge(*c, &l1_t))
+                {
+                    return replace_modified(c,7,makeCODEif_icmplt(l3, NULL));
+                }
+                else if (is_ifeq(*c, &l1_t))
+                {
+                    return replace_modified(c,7,makeCODEifne(l3, NULL));
+                }
+                else if (is_ifne(*c, &l1_t))
+                {
+                    return replace_modified(c,7,makeCODEifeq(l3, NULL));
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 void init_patterns(void) {
 	ADD_PATTERN(simplify_multiplication_right);
 	ADD_PATTERN(simplify_astore);
@@ -116,4 +181,5 @@ void init_patterns(void) {
 	ADD_PATTERN(simplify_goto_goto);
 
 	ADD_PATTERN(simplify_istore);
+	ADD_PATTERN(simplify_for_cond);
 }
