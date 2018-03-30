@@ -287,6 +287,26 @@ int simplify_string(CODE **c)
     return 0;
 }
 
+int simplify_concatenate_string(CODE **c)
+{
+    int l1, l2;
+    char *s, *n;
+    if (is_invokevirtual(*c, &s) &&
+        is_dup(nextby(*c, 1)) &&
+        is_ifnull(nextby(*c, 2), &l1) &&
+        is_goto(nextby(*c, 3), &l2) &&
+        is_label(nextby(*c, 4), &l1) &&
+        is_pop(nextby(*c, 5)) &&
+        is_ldc_string(nextby(*c, 6), &n) &&
+        is_label(nextby(*c, 7), &l2) &&
+        (strcmp(s, "java/lang/String/concat(Ljava/lang/String;)Ljava/lang/String;") == 0) &&
+        (strcmp(n, "null") == 0))
+    {
+        return replace(c, 8, makeCODEldc_string(s, NULL));
+    }
+    return 0;
+}
+
 void init_patterns(void) {
     ADD_PATTERN(simplify_multiplication_right);
     ADD_PATTERN(simplify_astore);
@@ -299,5 +319,6 @@ void init_patterns(void) {
     ADD_PATTERN(simplify_putfield);
     ADD_PATTERN(simplify_label_label);
     ADD_PATTERN(simplify_string);
+    ADD_PATTERN(simplify_concatenate_string);
     ADD_PATTERN(remove_deadlabel);
 }
