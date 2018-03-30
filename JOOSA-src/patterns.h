@@ -86,7 +86,7 @@ int simplify_putfield(CODE **c)
 
 
 /* iload x
- * ldc k   (0<=k<=127)
+ * ldc k   (0<k<=127)
  * iadd
  * istore x
  * --------->
@@ -98,11 +98,51 @@ int positive_increment(CODE **c)
       is_ldc_int(next(*c),&k) &&
       is_iadd(next(next(*c))) &&
       is_istore(next(next(next(*c))),&y) &&
-      x==y && 0<=k && k<=127) {
+      (x==y) && (0<k) && (k<=127)) {
      return replace(c,4,makeCODEiinc(x,k,NULL));
   }
   return 0;
 }
+
+/* iload x
+ * ldc k   (0>k>=-127)
+ * isub
+ * istore x
+ * --------->
+ * iinc x k
+ */ 
+int negative_increment(CODE **c)
+{
+    int x,y,k;
+    if (is_iload(*c,&x) &&
+            is_ldc_int(next(*c),&k) &&
+            is_isub(next(next(*c))) &&
+            is_istore(next(next(next(*c))),&y) &&
+            (x==y) && (0<k) && (k<=127)) {
+        return replace(c,4,makeCODEiinc(x,-k,NULL));
+    }
+    return 0;
+}
+
+int zero_sum(CODE **c)
+{ int x,y,k;
+  if (is_iload(*c,&x) &&
+      is_ldc_int(next(*c),&k) &&
+      is_isub(next(next(*c))) &&
+      is_istore(next(next(next(*c))),&y) &&
+      (x==y) && (k==0)) {
+     return replace(c, 4, NULL);
+  }
+  else if (is_iload(*c,&x) &&
+      is_ldc_int(next(*c),&k) &&
+      is_iadd(next(next(*c))) &&
+      is_istore(next(next(next(*c))),&y) &&
+      (x==y) && (k==0)) {
+     return replace(c, 4, NULL);
+  }
+  return 0;
+}
+
 
 /* goto L1
  * ...
@@ -307,12 +347,29 @@ int simplify_concatenate_string(CODE **c)
     return 0;
 }
 
+int simplify_new_objects(CODE **c)
+{
+    int k;
+    char *s;
+    if (is_dup(*c) &&
+        is_aload(next(*c), &k) &&
+        is_swap(nextby(*c, 2)) &&
+        is_putfield(nextby(*c, 3), &s) &&
+        is_pop(nextby(*c, 4)))
+    {
+        return replace(c, 5, makeCODEaload(k, makeCODEswap(makeCODEputfield(s, NULL))));
+    }
+    return 0;
+}
+
 void init_patterns(void) {
     ADD_PATTERN(simplify_multiplication_right);
     ADD_PATTERN(simplify_astore);
     ADD_PATTERN(positive_increment);
     ADD_PATTERN(simplify_goto_goto);
 
+    ADD_PATTERN(negative_increment);
+    ADD_PATTERN(zero_sum);
     ADD_PATTERN(simplify_istore);
     ADD_PATTERN(simplify_branch_single_cond);
     ADD_PATTERN(simplify_load_swap);
@@ -320,5 +377,7 @@ void init_patterns(void) {
     ADD_PATTERN(simplify_label_label);
     ADD_PATTERN(simplify_string);
     ADD_PATTERN(simplify_concatenate_string);
+    ADD_PATTERN(simplify_new_objects);
+
     ADD_PATTERN(remove_deadlabel);
 }
