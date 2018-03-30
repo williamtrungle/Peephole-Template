@@ -362,6 +362,152 @@ int simplify_new_objects(CODE **c)
     return 0;
 }
 
+/* goto l1
+ * non label (unreachable)
+ * -------->
+ * goto l1
+ */
+int remove_dead_code_after_goto(CODE **c)
+{
+    int l1, l2;
+    if (is_goto(*c, &l1) && 
+        !is_label(next(*c), &l2)) 
+    {
+        return replace(c, 2, makeCODEgoto(l1, NULL));
+    }
+    return 0;
+}
+
+/* goto l1 (redundant, l1 next anyway)
+ * l1: 
+ * -------->
+ * l1:
+ */
+int remove_redundant_goto(CODE **c)
+{
+    int l1, l2;
+    if (is_goto(*c, &l1) &&
+        is_label(next(*c), &l2) &&
+        l1 == l2) 
+    {
+        return replace(c, 2, makeCODElabel(l1, NULL));
+    }
+    return 0;
+}
+
+/* return / ireturn / areturn
+ * nop
+ * -------->
+ * return / ireturn / areturn
+ */
+int remove_nop_after_return(CODE **c)
+{
+    if (is_return(*c) &&
+        is_nop(next(*c)))
+    {
+        return replace(c, 2, makeCODEreturn(NULL));
+    }
+
+    if (is_areturn(*c) &&
+        is_nop(next(*c)))
+    {
+        return replace(c, 2, makeCODEareturn(NULL));
+    }
+
+    if (is_ireturn(*c) &&
+        is_nop(next(*c)))
+    {
+        return replace(c, 2, makeCODEireturn(NULL));
+    }
+    return 0;
+}
+
+/* dup
+ * pop
+ * --------> (dup followed by pop does nothing)
+ * <nothing>
+ */
+int remove_redundant_dup_pop(CODE **c)
+{
+    if (is_dup(*c) &&
+        is_pop(next(*c)))
+    {
+        return replace(c, 2, NULL);
+    }
+    return 0;
+}
+
+/* iload / aload k
+ * istore / astore k
+ * --------> (load followed by store does nothing)
+ * <nothing>
+ */
+int remove_redundant_load_store(CODE **c)
+{
+    int l1, l2;
+    if (is_iload(*c, &l1) &&
+        is_istore(next(*c), &l2) &&
+        l1 == l2)
+    {
+        return replace(c, 2, NULL);
+    }
+
+    if (is_aload(*c, &l1) &&
+        is_astore(next(*c), &l2) &&
+        l1 == l2)
+    {
+        return replace(c, 2, NULL);
+    }
+    return 0;
+}
+
+
+/* aload k / iload k
+ * dup
+ * aload j / iload j
+ * swap
+ * --------> elminates the redundant swap by simply loading in order
+ * aload k / iload k
+ * aload j / iload j
+ * aload k / iload k
+ */
+int simplify_multiple_load(CODE **c)
+{
+    int l1, l2;
+    if (is_aload(*c, &l1) &&
+        is_dup(nextby(*c, 1)) &&
+        is_aload(nextby(*c, 2), &l2) &&
+        is_swap(nextby(*c, 3)))
+    {
+        return replace(c, 4, makeCODEaload(l1, makeCODEaload(l2, makeCODEaload(l1, NULL))));
+    }
+
+    if (is_iload(*c, &l1) &&
+        is_dup(nextby(*c, 1)) &&
+        is_iload(nextby(*c, 2), &l2) &&
+        is_swap(nextby(*c, 3)))
+    {
+        return replace(c, 4, makeCODEiload(l1, makeCODEiload(l2, makeCODEiload(l1, NULL))));
+    }
+
+    if (is_iload(*c, &l1) &&
+        is_dup(nextby(*c, 1)) &&
+        is_aload(nextby(*c, 2), &l2) &&
+        is_swap(nextby(*c, 3)))
+    {
+        return replace(c, 4, makeCODEiload(l1, makeCODEaload(l2, makeCODEiload(l1, NULL))));
+    }
+
+    if (is_aload(*c, &l1) &&
+        is_dup(nextby(*c, 1)) &&
+        is_iload(nextby(*c, 2), &l2) &&
+        is_swap(nextby(*c, 3)))
+    {
+        return replace(c, 4, makeCODEaload(l1, makeCODEiload(l2, makeCODEaload(l1, NULL))));
+    }
+    return 0;
+}
+
 void init_patterns(void) {
     ADD_PATTERN(simplify_multiplication_right);
     ADD_PATTERN(simplify_astore);
@@ -380,4 +526,10 @@ void init_patterns(void) {
     ADD_PATTERN(simplify_new_objects);
 
     ADD_PATTERN(remove_deadlabel);
+    ADD_PATTERN(remove_dead_code_after_goto);
+    ADD_PATTERN(remove_redundant_goto);
+    ADD_PATTERN(remove_redundant_dup_pop);
+    ADD_PATTERN(remove_nop_after_return);
+    ADD_PATTERN(remove_redundant_load_store);
+    ADD_PATTERN(simplify_multiple_load);
 }
