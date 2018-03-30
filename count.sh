@@ -126,7 +126,7 @@ then
 	exit
 fi
 
-IMPROVEMENT=$(echo "scale=2;(1-($OPT/$NORMAL))*100" | bc -l)
+IMPROVEMENT=$(echo "scale=2;100-($OPT*100/$NORMAL)" | bc -l)
 
 echo -e "\e[42m\033[1mNormal:\033[0m\e[42m $NORMAL\e[49m"
 echo -e "\e[42m\033[1mOptimized:\033[0m\e[42m $OPT\e[49m"

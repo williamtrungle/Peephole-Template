@@ -19,6 +19,7 @@
  *                               iadd
  */
 #include <stdio.h>
+#include <string.h>
 
 int simplify_multiplication_right(CODE **c)
 { int x,k;
@@ -66,6 +67,23 @@ int simplify_istore(CODE **c)
   }
   return 0;
 }
+
+/* dup
+ * putfield
+ * pop
+ * -------->
+ * putfield
+ */
+int simplify_putfield(CODE **c)
+{ char *f;
+    if (is_dup(*c) &&
+        is_putfield(next(*c), &f) &&
+        is_pop(next(next(*c)))) {
+        return replace(c, 3, makeCODEputfield(f, NULL));
+    }
+    return 0;
+}
+
 
 /* iload x
  * ldc k   (0<=k<=127)
@@ -122,10 +140,11 @@ int simplify_goto_goto(CODE **c)
  * ----------->
  * if_cmpge L3
  * ...
- * L3:
+ * L3: (reference count unchanged)
  */
-int simplify_branch_cond(CODE **c)
-{ int l1_t, l1_f, l2_t, l2_f, l3, k;
+int simplify_branch_single_cond(CODE **c)
+{
+    int l1_t, l1_f, l2_t, l2_f, l3, k;
     if (is_if(c, &l1_t))
     {
         if (is_ldc_int(nextby(*c, 1), &k) &&
@@ -141,35 +160,51 @@ int simplify_branch_cond(CODE **c)
             {
                 if (is_if_icmplt(*c, &l1_t))
                 {
-                    return replace_modified(c,7,makeCODEif_icmpge(l3, NULL));
+                    return replace(c,7,makeCODEif_icmpge(l3, NULL));
                 }
                 else if (is_if_icmple(*c, &l1_t))
                 {
-                    return replace_modified(c,7,makeCODEif_icmpgt(l3, NULL));
+                    return replace(c,7,makeCODEif_icmpgt(l3, NULL));
                 }
                 else if (is_if_icmpgt(*c, &l1_t))
                 {
-                    return replace_modified(c,7,makeCODEif_icmple(l3, NULL));
+                    return replace(c,7,makeCODEif_icmple(l3, NULL));
                 }
                 else if (is_if_icmpge(*c, &l1_t))
                 {
-                    return replace_modified(c,7,makeCODEif_icmplt(l3, NULL));
+                    return replace(c,7,makeCODEif_icmplt(l3, NULL));
                 }
                 else if (is_ifeq(*c, &l1_t))
                 {
-                    return replace_modified(c,7,makeCODEifne(l3, NULL));
+                    return replace(c,7,makeCODEifne(l3, NULL));
                 }
                 else if (is_ifne(*c, &l1_t))
                 {
-                    return replace_modified(c,7,makeCODEifeq(l3, NULL));
+                    return replace(c,7,makeCODEifeq(l3, NULL));
                 }
                 else if (is_if_icmpeq(*c, &l1_t))
                 {
-                    return replace_modified(c,7,makeCODEif_icmpne(l3, NULL));
+                    return replace(c,7,makeCODEif_icmpne(l3, NULL));
                 }
                 else if (is_if_icmpne(*c, &l1_t))
                 {
-                    return replace_modified(c,7,makeCODEif_icmpeq(l3, NULL));
+                    return replace(c,7,makeCODEif_icmpeq(l3, NULL));
+                }
+                else if (is_if_acmpeq(*c, &l1_t))
+                {
+                    return replace(c,7,makeCODEif_acmpne(l3, NULL));
+                }
+                else if (is_if_acmpne(*c, &l1_t))
+                {
+                    return replace(c,7,makeCODEif_acmpeq(l3, NULL));
+                }
+                else if (is_ifnull(*c, &l1_t))
+                {
+                    return replace(c,7,makeCODEifnonnull(l3, NULL));
+                }
+                else if (is_ifnonnull(*c, &l1_t))
+                {
+                    return replace(c,7,makeCODEifnull(l3, NULL));
                 }
             }
         }
@@ -177,31 +212,92 @@ int simplify_branch_cond(CODE **c)
     return 0;
 }
 
-/*
-int simplify_if_cond(CODE **c)
-{ int l1_t, l1_f, l2_t, l2_f, l3, k;
-    if (is_if(c, &l1_t))
+int simplify_load_swap(CODE **c)
+{
+    int x, k;
+    char *s;
+    if (is_ldc_int(*c, &k) && 
+            is_dup(next(*c)) &&
+            is_aload(next(next(*c)), &x) &&
+            is_swap(next(next(next(*c)))))
     {
-        if (is_ldc_int(nextby(*c, 1), &k) &&
-                is_goto(nextby(*c, 2), &l2_t) &&
-                is_label(nextby(*c, 3), l1_f) &&
-                is_ldc_int(nextby(*c, 4), &k) &&
-                is_label(nextby(*c, 5), &l2_f) &&
-                is_ifeq(nextby(*c, 6), &l3) &&
-                (l1_t == l1_f) && (l2_t == l2_f) &&
-                l3 < l2_t && l2_t > l1_t)
-        {
-        }
+        return replace(c, 4, makeCODEaload(x, makeCODEldc_int(k, makeCODEdup(NULL))));
     }
+    else if (is_ldc_string(*c, &s) && 
+            is_dup(next(*c)) &&
+            is_aload(next(next(*c)), &x) &&
+            is_swap(next(next(next(*c)))))
+    {
+        return replace(c, 4, makeCODEaload(x,
+                             makeCODEldc_string(s,
+                             makeCODEdup(NULL))));
+    }
+    return 0;
 }
-*/
+
+int simplify_label_label(CODE **c)
+{ int l1, l2;
+    if (is_goto(*c, &l1) && is_label(next(destination(l1)), &l2))
+    {
+        droplabel(l1);
+        copylabel(l2);
+        return replace(c, 1, makeCODEgoto(l2, NULL));
+    }
+    else if (is_ifeq(*c, &l1) && is_label(next(destination(l1)), &l2))
+    {
+        droplabel(l1);
+        copylabel(l2);
+        return replace(c, 1, makeCODEifeq(l2, NULL));
+    }
+    else if (is_ifne(*c, &l1) && is_label(next(destination(l1)), &l2))
+    {
+        droplabel(l1);
+        copylabel(l2);
+        return replace(c, 1, makeCODEifne(l2, NULL));
+    }
+    return 0;
+}
+
+int remove_deadlabel(CODE **c)
+{ int l;
+    if (is_label(*c, &l) && deadlabel(l))
+    {
+        return kill_line(c);
+    }
+    return 0;
+}
+
+int simplify_string(CODE **c)
+{
+    int l1, l2;
+    char *s, *n; 
+    if (is_ldc_string(*c, &s) &&
+        is_dup(nextby(*c, 1)) &&
+        is_ifnull(nextby(*c, 2), &l1) &&
+        is_goto(nextby(*c, 3), &l2) &&
+        is_label(nextby(*c, 4), &l1) &&
+        is_pop(nextby(*c, 5)) &&
+        is_ldc_string(nextby(*c, 6), &n) &&
+        is_label(nextby(*c, 7), &l2) &&
+        (s != NULL) && (*s != '\0') &&
+        (strcmp(n, "null") == 0))
+    {
+        return replace(c, 8, makeCODEldc_string(s, NULL));
+    }
+    return 0;
+}
 
 void init_patterns(void) {
-	ADD_PATTERN(simplify_multiplication_right);
-	ADD_PATTERN(simplify_astore);
-	ADD_PATTERN(positive_increment);
-	ADD_PATTERN(simplify_goto_goto);
+    ADD_PATTERN(simplify_multiplication_right);
+    ADD_PATTERN(simplify_astore);
+    ADD_PATTERN(positive_increment);
+    ADD_PATTERN(simplify_goto_goto);
 
-	ADD_PATTERN(simplify_istore);
-	ADD_PATTERN(simplify_branch_cond);
+    ADD_PATTERN(simplify_istore);
+    ADD_PATTERN(simplify_branch_single_cond);
+    ADD_PATTERN(simplify_load_swap);
+    ADD_PATTERN(simplify_putfield);
+    ADD_PATTERN(simplify_label_label);
+    ADD_PATTERN(simplify_string);
+    ADD_PATTERN(remove_deadlabel);
 }
