@@ -10,6 +10,9 @@
  * email: hendren@cs.mcgill.ca, mis@brics.dk
  */
 
+#include <stdio.h>
+#include <string.h>
+
 /* iload x        iload x        iload x
  * ldc 0          ldc 1          ldc 2
  * imul           imul           imul
@@ -18,9 +21,6 @@
  *                               dup
  *                               iadd
  */
-#include <stdio.h>
-#include <string.h>
-
 int simplify_multiplication_right(CODE **c)
 { int x,k;
   if (is_iload(*c,&x) && 
@@ -124,6 +124,12 @@ int negative_increment(CODE **c)
     return 0;
 }
 
+/* iload x
+ * ldc 0
+ * isub | iadd
+ * istore
+ * ------------>
+ */
 int zero_sum(CODE **c)
 { int x,y,k;
   if (is_iload(*c,&x) &&
@@ -171,9 +177,9 @@ int simplify_goto_goto(CODE **c)
 /* if_cmplt L1
  * iconst_0
  * goto L2
- * L1:
+ * L1: (unique)
  * iconst_1
- * L2:
+ * L2: (unique)
  * ifeq L3
  * ...
  * L3
@@ -190,8 +196,10 @@ int simplify_branch_single_cond(CODE **c)
         if (is_ldc_int(nextby(*c, 1), &k) &&
                 is_goto(nextby(*c, 2), &l2_t) && 
                 is_label(nextby(*c, 3), &l1_f) && 
+                uniquelabel(l1_f) &&
                 is_ldc_int(nextby(*c, 1), &k) &&
                 is_label(nextby(*c, 5), &l2_f) && 
+                uniquelabel(l2_f) &&
                 is_ifeq(nextby(*c, 6), &l3))
         {
             if ((l2_t == l2_f) &&
@@ -252,6 +260,15 @@ int simplify_branch_single_cond(CODE **c)
     return 0;
 }
 
+/* ldc c
+ * dup
+ * aload x
+ * swap
+ * ----------->
+ * aload x
+ * ldc c
+ * dup
+ */
 int simplify_load_swap(CODE **c)
 {
     int x, k;
@@ -275,6 +292,16 @@ int simplify_load_swap(CODE **c)
     return 0;
 }
 
+/* goto label1
+ * ...
+ * label1:
+ * label2:
+ * ------------->
+ * goto label2
+ * ...
+ * label1: (reference count reduced by 1)
+ * label2: (reference count icreased by 1)
+ */
 int simplify_label_label(CODE **c)
 { int l1, l2;
     if (is_goto(*c, &l1) && is_label(next(destination(l1)), &l2))
@@ -298,6 +325,9 @@ int simplify_label_label(CODE **c)
     return 0;
 }
 
+/* label: (reference count == 0)
+ * -------------->
+ */
 int remove_deadlabel(CODE **c)
 { int l;
     if (is_label(*c, &l) && deadlabel(l))
@@ -307,6 +337,17 @@ int remove_deadlabel(CODE **c)
     return 0;
 }
 
+/* ldc string_literal (ie: "string")
+ * dup
+ * ifnull label1
+ * goto label2
+ * label1: (unique label)
+ * pop
+ * ldc "null" (unique label)
+ * label2:
+ * --------->
+ * ldc string_literal
+ */
 int simplify_string(CODE **c)
 {
     int l1, l2;
@@ -316,9 +357,11 @@ int simplify_string(CODE **c)
         is_ifnull(nextby(*c, 2), &l1) &&
         is_goto(nextby(*c, 3), &l2) &&
         is_label(nextby(*c, 4), &l1) &&
+        uniquelabel(l1) &&
         is_pop(nextby(*c, 5)) &&
         is_ldc_string(nextby(*c, 6), &n) &&
         is_label(nextby(*c, 7), &l2) &&
+        uniquelabel(l2) &&
         (s != NULL) && (*s != '\0') &&
         (strcmp(n, "null") == 0))
     {
@@ -327,6 +370,17 @@ int simplify_string(CODE **c)
     return 0;
 }
 
+/* invokevirtual (returns a string or the "null" string)
+ * dup
+ * ifnull label1
+ * goto label2
+ * label1: (unique)
+ * pop
+ * ldc "null" (unique label)
+ * label2:
+ * --------->
+ * ldc string_literal
+ */
 int simplify_concatenate_string(CODE **c)
 {
     int l1, l2;
@@ -336,9 +390,11 @@ int simplify_concatenate_string(CODE **c)
         is_ifnull(nextby(*c, 2), &l1) &&
         is_goto(nextby(*c, 3), &l2) &&
         is_label(nextby(*c, 4), &l1) &&
+        uniquelabel(l1) &&
         is_pop(nextby(*c, 5)) &&
         is_ldc_string(nextby(*c, 6), &n) &&
         is_label(nextby(*c, 7), &l2) &&
+        uniquelabel(l2) &&
         (strcmp(s, "java/lang/String/concat(Ljava/lang/String;)Ljava/lang/String;") == 0) &&
         (strcmp(n, "null") == 0))
     {
@@ -347,6 +403,16 @@ int simplify_concatenate_string(CODE **c)
     return 0;
 }
 
+/* dup
+ * aload x
+ * swap
+ * pulfield s
+ * pop
+ * ----------->
+ * aload x
+ * swap
+ * putfield s
+ */
 int simplify_new_objects(CODE **c)
 {
     int k;
